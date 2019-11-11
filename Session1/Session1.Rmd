@@ -30,7 +30,7 @@ Continuous: variables can take on any value within some range, and both order an
 status <- c("bad", "good", "good", "excellent")
 status <- factor(status, order = T)
 farmdata <- data.frame(plotID, altitude, region, crop, status)
-str(farmdata)  #looking the structure of farmdata
+str(farmdata)  #looking the structure of farmdata 
 ```
 
 ```{r}

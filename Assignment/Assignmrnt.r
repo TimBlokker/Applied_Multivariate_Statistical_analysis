@@ -5,48 +5,72 @@ globe <- read_excel("Assignment/GLOBE-Phase-2-Aggregated-Societal-Culture-Data.x
                     sheet = "GLOBE Phase 2 Society Level Soc")
 names(erasmus)
 erasmus2<-erasmus[,c(2,4,13)]
-erasmus2[which(erasmus2[,1]=='???'),1]<-NA #these are mainly enterprise placements
-erasmus2[which(erasmus2[,2]=='???'),2]<-NA #these are mainly enterprise placements
-erasmus2[which(erasmus2[,3]=='???'),3]<-NA #these are mainly enterprise placements
+names(erasmus2)
 
+#Remove missing entries from Erasmus dataset and assign completers to erasmus3
+erasmus2[which(erasmus2[,1]=='???'),1]<-NA 
+erasmus2[which(erasmus2[,2]=='???'),2]<-NA 
+erasmus2[which(erasmus2[,3]=='???'),3]<-NA 
 erasmus3=na.omit(erasmus2)
 head(erasmus3)
+
+#Filter for data on european countries
 globe2<-globe%>%
   filter(globe$`Country Cluster`%in%c("Anglo","Eastern Europe", "Nordic Europe", "Germanic Europe", "Latin Europe" ))
 
+#make the variable a factor
 globe2$`Country Name`<-(as.factor(globe2$`Country Name`))
+
+#Combine East and West Germany into Germany
 levels(globe2$`Country Name`)[11:12]<-"Germany"
 lev_g<-sort(levels(as.factor(globe2$`Country Name`)))
+
+#Remove countries from Erasmus data set that were not present in the globe data set
 lev_e<-levels(erasmus3$HOME_INSTITUTION_CTRY_CDE)[c(-2,-3,-4, -5,-7,-8, -11,-16,-19,-21,-22,-23,-24,-25,-27,-30,-33,-34)]
+
+#Sort the levels according to the levels in erasmus dataset to be able to map the country names
 lev_g2<-lev_g[c(3,28,11,5,26,7,8,12,13,14,16,18,20,21,27,23,6)]
+
 library(plyr)
+#rename country names in globe to the short hand notation from the erasmus data set
 globe2$`Country Name` <- mapvalues(globe2$`Country Name`, from=lev_g2, to=lev_e)
 globe2=data.frame(globe2)
+
+#drop levels that are empty
 droplevels(erasmus3$HOST_INSTITUTION_COUNTRY_CDE)
 droplevels(erasmus3$HOME_INSTITUTION_CTRY_CDE)
+
+#filter erasmus dataset for countries that also exist in globe dataset
 erasmus3<-erasmus3%>%
   filter(HOME_INSTITUTION_CTRY_CDE%in%lev_e)%>%
   filter(HOST_INSTITUTION_COUNTRY_CDE%in%lev_e)
-#west and east gremany are same students, remove country 94-> east germany
+
+#west and east germany are same students, remove country 94-> east germany
 globe3<-globe2%>%
   filter(!(Country==94))
+
+#merge the globe data set and the erasmus dataset by matching Home and Host country
 x<-merge(globe3, erasmus3, by.x="Country.Name", by.y="HOME_INSTITUTION_CTRY_CDE")
 z<-merge(globe3, erasmus3, by.x="Country.Name", by.y="HOST_INSTITUTION_COUNTRY_CDE")
 
-#sort dataframes for student id
+#sort dataframes for student id to calculate cultural differnce between host and home country
 x<-x%>%
   arrange(ID_MOBILITY_CDE)
 z<-z%>%
   arrange(ID_MOBILITY_CDE)
-#Differences in Globe data for Home and Host Country (Home - Host)
+
+#Cultural Differences in Globe data for Home and Host Country (Home - Host)
 y<-x[,3:20]-z[,3:20]
 y<-cbind(x$HOST_INSTITUTION_COUNTRY_CDE, z$HOME_INSTITUTION_CTRY_CDE,y)
 names(y)[c(1,2)]<-c("Host_Country", "Home_country")
 
-#calculate the mean distance between home and host country
+#calculate the distance between home and host country
 y$FromTo<-paste(y$Home_country, "_", y$Host_Country )
 y2<-y[,c(21,3:20)]
 y3<-aggregate(y2[,2:19], y2[1], mean)  #mean is the actual value since all entries with same from_to are the same for all values
+
+#The aggregation reduced the dataset to 270 rows so 270 different FromTo values, to be able to weigh the importance of 
+#the different FromTo values we count the number of rows that were aggregated into one FromTo row
 obs_weights<-y2%>%
   group_by(FromTo)%>%
   count()%>%
@@ -55,61 +79,62 @@ obs_weights
 
 library(dplyr)
 library(magrittr)
+#change data type to numeric
 y4<-y3%<>% mutate_if(is.factor,as.numeric)
 xm<-apply(y4[,2:19],2,mean)
-y5<-sweep(y4[2:19],2,xm)#center the data, I do not normalize for var=1 because the values used are already normalized
+y5<-sweep(y4[2:19],2,xm)#center the data, I do not normalize for var=1 because the values used are on the same scale 
 
-
+#Look at stars plot where exchanges which let the student experience the same type of cultural differences look similar
 stars(y5)
 
-# Because the variables are normalized we know their ranges.
-# Set up the plot axes and lables.
+par(mfrow=(c(1,1)))
+#All variables are on the same scale and so we know the ranges.
+#Set up the plot axes and lables.
 plot(c(.5,18),c(-2,2),type="n",xlab=var,ylab="Value",main="Profile Plot - Rock Data")
-# Use a loop to generate profiles for each observation.
+#Use a loop to generate profiles for each FromTo value
 for (k in (1:270)){
-  points(1:18,y5[k,],type="l")
+  points(1:18,y5[k,],type="l") #possibly observe 2 groups
 }
 
-# Generate Andrews plot for the rock data.
+# Generate Andrews plot for the cultural difference data
 t <-seq(-pi,pi,length=500)
-plot(c(-pi,pi),c(-6,6),type="n",xlab=var,ylab="Value",main="Andrews Plot - Rock Data")
+plot(c(-pi,pi),c(-6,6),type="n",xlab=var,ylab="Value",main="Andrews Plot")
 for (k in (1:270)){
   crseq <- (y5[k,1]/sqrt(2))+y5[k,2]*sin(t) + y5[k,3]*cos(t)+y5[k,4]*cos(2*t)
   points(t,crseq,type="l")
 }
+title("Andrews Plot")
 
-#start with a cluster analysis
+  #start with a cluster analysis since we suspect two clusters, we include the frequencies of the FromTo values as weights
+#this gives information on which cultural values are attractive for certain countries to go to on erasmus
 par(mfrow=c(1,1))
-crab.clus <- hclust(dist(y5), method="average", members=obs_weights$n)  # AVARAGE LINK and using the frequencies of the observations as weights
-plot(crab.clus,xlab="Crab Data",ylab="Average Link Distance", sub="")
+culDifclust <- hclust(dist(y5), method="average", members=obs_weights$freq)  #AVARAGE LINK and using the frequencies of the observations as weights
+plot(culDifclust,xlab="Cultural Differences",ylab="Average Link Distance", sub="")
 
 #we select 3 clusters and observe 2 outliers
-crab.gp <- cutree(crab.clus,k=3)
-table(crab.gp)#outliers in group 3
+culDif.gp <- cutree(culDifclust,k=3)
+table(culDif.gp)#outliers in group 3
 library(cluster)
-clusplot(y5,crab.gp,stand=TRUE,labels=3,main="Rock-single link")
+clusplot(y5,culDif.gp,stand=TRUE,labels=3,main="Cultural Difference - Average link")
 
-clusterd<-(cbind(crab.gp,y5))
-clusterd2<-(cbind(crab.gp,y4[,1],y5, obs_weights$freq))#interprete clusters as profile of cultural differences that different groups of students prefer, lets look what this groups could be
-names(clusterd)
-library(tree)
-tree<-tree(as.factor(clusterd$crab.gp)~., data=clusterd)
-plot(tree)                  # plot tree in variable scale
-text(tree,srt=0,adj=1)              # puts names on tree plot
-summary(tree)
-#plot Deviance versus size by cross-validation - Tree g1.ind
-tree.cv<-cv.tree(tree, FUN=prune.tree)
-?cv.tree
-plot(tree.cv,type="b")
+
+#visualizing the variables that lead to belonging to one cluster or another
+library(rpart)
+rpart=rpart(as.factor(clusterd$culDif.gp)~., data=clusterd)
+library(rpart.plot)
+prp(rpart,
+    type = 4,
+    extra = 101,
+    fallen.leaves = T,
+    round = 2,
+    space = -1,
+    varlen = 10,)
+?prp
+plotcp(rpart)
 
 # K means cluster method.
 # Compute the kmeans cluster object for two clusters and 20 iterations
-rock.kcl <- kmeans(y5, 3, 20) #THE CLUSTERING IS NOT VERY GOOD BSS/TOTALSS BUT WE HAVE ONLY 3 CLUSTERS
-names(rock.kcl)
-# The cluster id information is directly in the rock.kcl cluster
-# object so there is no need for cutree function.
-# Perform the pairwise plots with color coded cluster id included.
-
+culDif.kcl <- kmeans(y5, 3, 20) #THE CLUSTERING IS NOT VERY GOOD BSS/TOTALSS BUT WE HAVE ONLY 3 CLUSTERS
 
 ##Try PCA to reduce the dimensions and then du cluster analysis
 xc=as.matrix(y5)
@@ -127,11 +152,44 @@ pca.scores<-xc%*%pca.y5$u
 plot(pca.scores)#pca scores
 pca.y5$u#loadings
 
-
-rock.pkcl <- kmeans(pca.scores,3,20)
+culDif.pkcl <- kmeans(pca.scores,3,20)
 par(mfrow=c(1,1))
-plot(pca.scores[,1:3], col = rock.pkcl$cluster)
-points(rock.pkcl$centers[,c(1,2)], col = 1:3, pch ="+", cex=2)
+plot(pca.scores[,1:3], col = culDif.pkcl$cluster)
+points(culDif.pkcl$centers[,c(1,2)], col = 1:3, pch ="+", cex=2)
 title ("K Means Cluster on first two PCs - Rock Data")
-clusplot(y5,rock.pkcl$cluster,stand=TRUE,labels=2,main="Rock-kmeans, 2 clusters")
+clusplot(y5,culDif.pkcl$cluster,stand=TRUE,labels=2,main="Rock-kmeans, 2 clusters")
+
+#Assign cluster to FromTo cultural difference values
+clusterd<-(cbind(culDif.gp,y5))
+clusterd2<-(cbind(culDif.gp,y4[,1],y5, obs_weights$freq))#interprete clusters as profile of cultural differences
+xxxx=strsplit(as.character(clusterd2[,2]),'_')
+x=seq(1,540,2)
+clusterd2$Home=unlist(xxxx)[x]
+clusterd2$Host=unlist(xxxx)[x+1]
+names(clusterd2)
+names(clusterd2)[21]<-"Frequency"
+clusterd3<-aggregate(clusterd2[,21], clusterd2[,c(22,1)], sum)
+
+for(i in 1:length(clusterd3$Home)){
+  indexes=which(clusterd3$Home==clusterd3$Home[i])
+  if(length(indexes)>1){
+    clusterd3$percentage[indexes[1]]=clusterd3$x[indexes[1]]/sum(clusterd3$x[indexes[1]],clusterd3$x[indexes[2]])
+    clusterd3$percentage[indexes[2]]=clusterd3$x[indexes[2]]/sum(clusterd3$x[indexes[1]],clusterd3$x[indexes[2]])
+  }else
+    clusterd3$percentage[indexes[1]]=1
+}
+
+clusterd4=data.frame(clusterd3[order(clusterd3$Home, decreasing = T),])
+library(ggplot2)
+a<-ggplot(clusterd4, aes(x=Home,y=percentage,fill=factor(culDif.gp)))
+a+geom_col()+ geom_hline(yintercept=clusterd6$percentage[2], linetype="dashed", 
+                         color = "red", size=1)
+
+library(dplyr)
+clusterd5=clusterd4[,c(2,3)]
+clusterd6=clusterd5%>%
+  group_by(culDif.gp)%>%
+  summarise(sum=sum(x))%>%
+  mutate(percentage=sum/sum(sum))
+
 

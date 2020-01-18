@@ -1,8 +1,21 @@
-erasmus<-read.csv(file="Assignment/SM_2012_13_20141103_01.csv", sep=";")
+#Load libraries
 library(readxl)
 library(dplyr)
+library(plyr)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(dendextend)
+library(cluster)
+library(rpart)
+library(rpart.plot)
+
+#load data
+erasmus<-read.csv(file="Assignment/SM_2012_13_20141103_01.csv", sep=";")
 globe <- read_excel("Assignment/GLOBE-Phase-2-Aggregated-Societal-Culture-Data.xls", 
                     sheet = "GLOBE Phase 2 Society Level Soc")
+
+#Pre-processing
 names(erasmus)
 erasmus2<-erasmus[,c(2,4,13)]
 names(erasmus2)
@@ -31,7 +44,6 @@ lev_e<-levels(erasmus3$HOME_INSTITUTION_CTRY_CDE)[c(-2,-3,-4, -5,-7,-8, -11,-16,
 #Sort the levels according to the levels in erasmus dataset to be able to map the country names
 lev_g2<-lev_g[c(3,28,11,5,26,7,8,12,13,14,16,18,20,21,27,23,6)]
 
-library(plyr)
 #rename country names in globe to the short hand notation from the erasmus data set
 globe2$`Country Name` <- mapvalues(globe2$`Country Name`, from=lev_g2, to=lev_e)
 globe2=data.frame(globe2)
@@ -48,7 +60,6 @@ erasmus3<-erasmus3%>%
 #west and east germany are same students, remove country 94-> east germany
 globe3<-globe2%>%
   filter(!(Country==94))
-
 #merge the globe data set and the erasmus dataset by matching Home and Host country
 x<-merge(globe3, erasmus3, by.x="Country.Name", by.y="HOME_INSTITUTION_CTRY_CDE")
 z<-merge(globe3, erasmus3, by.x="Country.Name", by.y="HOST_INSTITUTION_COUNTRY_CDE")
@@ -77,8 +88,7 @@ obs_weights<-y2%>%
   arrange(FromTo)
 obs_weights
 
-library(dplyr)
-library(magrittr)
+
 #change data type to numeric
 y4<-y3%<>% mutate_if(is.factor,as.numeric)
 xm<-apply(y4[,2:19],2,mean)
@@ -86,7 +96,6 @@ y5<-sweep(y4[2:19],2,xm)#center the data, I do not normalize for var=1 because t
 
 #Look at stars plot where exchanges which let the student experience the same type of cultural differences look similar
 stars(y5)
-
 par(mfrow=(c(1,1)))
 #All variables are on the same scale and so we know the ranges.
 #Set up the plot axes and lables.
@@ -108,60 +117,38 @@ title("Andrews Plot")
   #start with a cluster analysis since we suspect two clusters, we include the frequencies of the FromTo values as weights
 #this gives information on which cultural values are attractive for certain countries to go to on erasmus
 par(mfrow=c(1,1))
-culDifclust <- hclust(dist(y5), method="average", members=obs_weights$freq)  #AVARAGE LINK and using the frequencies of the observations as weights
+d=dist(y5, method='euclidean')
+culDifclust <- hclust(d, method="average", members=obs_weights$freq)  #AVARAGE LINK and using the frequencies of the observations as weights
 plot(culDifclust,xlab="Cultural Differences",ylab="Average Link Distance", sub="")
+
+
+# Rectangle dendrogram using ggplot2
+dend=as.dendrogram(culDifclust)
+dend %>% set("labels_col", value = c("green", "blue", "red"), k=3) %>% 
+  plot(main = "Weighted Cluster Dendrogram", ylab="Average Link Distance", xlab="Cultural Differences", )
+abline(h = 3.2, lty = 2)
+ 
 
 #we select 3 clusters and observe 2 outliers
 culDif.gp <- cutree(culDifclust,k=3)
 table(culDif.gp)#outliers in group 3
-library(cluster)
+
 clusplot(y5,culDif.gp,stand=TRUE,labels=3,main="Cultural Difference - Average link")
 
 
-#visualizing the variables that lead to belonging to one cluster or another
-library(rpart)
-rpart=rpart(as.factor(clusterd$culDif.gp)~., data=clusterd)
-library(rpart.plot)
-prp(rpart,
-    type = 4,
-    extra = 101,
-    fallen.leaves = T,
-    round = 2,
-    space = -1,
-    varlen = 10,)
-?prp
-plotcp(rpart)
-
-# K means cluster method.
-# Compute the kmeans cluster object for two clusters and 20 iterations
-culDif.kcl <- kmeans(y5, 3, 20) #THE CLUSTERING IS NOT VERY GOOD BSS/TOTALSS BUT WE HAVE ONLY 3 CLUSTERS
-
-##Try PCA to reduce the dimensions and then du cluster analysis
-xc=as.matrix(y5)
-ss=t(xc)%*%xc
-d=diag(ss)^(-1/2)
-e=diag(d)
-xn=xc%*%e
-var(xn)*sqrt(nrow(xc)-1)
-R=t(xn)%*%xn
-
-#we need cov matrix for PCA
-s=ss/(dim(y5)[1]-1)
-pca.y5=svd(s)
-pca.scores<-xc%*%pca.y5$u
-plot(pca.scores)#pca scores
-pca.y5$u#loadings
-
-culDif.pkcl <- kmeans(pca.scores,3,20)
-par(mfrow=c(1,1))
-plot(pca.scores[,1:3], col = culDif.pkcl$cluster)
-points(culDif.pkcl$centers[,c(1,2)], col = 1:3, pch ="+", cex=2)
-title ("K Means Cluster on first two PCs - Rock Data")
-clusplot(y5,culDif.pkcl$cluster,stand=TRUE,labels=2,main="Rock-kmeans, 2 clusters")
-
 #Assign cluster to FromTo cultural difference values
 clusterd<-(cbind(culDif.gp,y5))
-clusterd2<-(cbind(culDif.gp,y4[,1],y5, obs_weights$freq))#interprete clusters as profile of cultural differences
+
+#Use rpart function with built in cross-validation and selection of best cp value
+rpart=rpart(as.factor(clusterd$culDif.gp)~., data=clusterd)
+print(rpart, digits=2, minlength=10, spaces=4)
+printcp(rpart)
+par(mfrow=c(1,2))
+prp(rpart, type = 4, extra = 101, fallen.leaves = T,round = 2, space = -1, varlen = 5)
+plotcp(rpart)
+
+#Split the FromTO values again into Host and Home
+clusterd2<-(cbind(culDif.gp,y4[,1],y5, obs_weights$freq))
 xxxx=strsplit(as.character(clusterd2[,2]),'_')
 x=seq(1,540,2)
 clusterd2$Home=unlist(xxxx)[x]
@@ -170,6 +157,7 @@ names(clusterd2)
 names(clusterd2)[21]<-"Frequency"
 clusterd3<-aggregate(clusterd2[,21], clusterd2[,c(22,1)], sum)
 
+#Calculate how many exchanges from each home country fall into cluster 1,2 or 3 in % 
 for(i in 1:length(clusterd3$Home)){
   indexes=which(clusterd3$Home==clusterd3$Home[i])
   if(length(indexes)>1){
@@ -179,17 +167,61 @@ for(i in 1:length(clusterd3$Home)){
     clusterd3$percentage[indexes[1]]=1
 }
 
+#sort by country
 clusterd4=data.frame(clusterd3[order(clusterd3$Home, decreasing = T),])
-library(ggplot2)
-a<-ggplot(clusterd4, aes(x=Home,y=percentage,fill=factor(culDif.gp)))
-a+geom_col()+ geom_hline(yintercept=clusterd6$percentage[2], linetype="dashed", 
-                         color = "red", size=1)
+head(clusterd4)
 
-library(dplyr)
+#calculate prior probabilities
 clusterd5=clusterd4[,c(2,3)]
+detach(package:plyr)#plyr interferes with dplyr functionality elsewise
 clusterd6=clusterd5%>%
   group_by(culDif.gp)%>%
   summarise(sum=sum(x))%>%
   mutate(percentage=sum/sum(sum))
+
+#plot bar diagram
+a<-ggplot(clusterd4, aes(x=Home,y=percentage,fill=factor(culDif.gp)))
+b=a+theme_classic()+   scale_fill_hue(l=20)
+b+geom_col()+ geom_hline(yintercept=clusterd6$percentage[2], linetype="dashed", 
+                         color = "steelblue", size=1)
+
+##Create correlation matrix from centered data matrix
+xc=as.matrix(y5)
+ss=t(xc)%*%xc
+d=diag(ss)^(-1/2)
+e=diag(d)
+xn=xc%*%e
+var(xn)*sqrt(nrow(xc)-1)
+R=t(xn)%*%xn
+
+#Factor analysis
+pca.corr=eigen(R)
+xch=xc
+cerB=diag((pca.corr$values)^(1/2))%*%t(pca.corr$vectors[c(1,2),])
+cerB
+cerB%*%t(cerB)
+
+R.B<-pca.corr$u      #scores matrix #U is the  matrix of standardized PC scores!   
+C.B<-pca.corr$vectors%*%diag((pca.corr$values)^(1/2))%*%t(pca.corr$vectors[c(1,2),])  
+
+par(mar=c(4,4,4,4),pty='s',oma=c(5,0,0,0),font=2)
+par(mfrow=c(1,1))
+plot(R.B[ ,1],R.B[ ,2],axes=F,xlim=c(-1,1),ylim=c(-1,1),xlab=' ',ylab=' ',cex=.8)
+mtext('First component',side=1,line=3,cex=.8)
+mtext('Second component',side=2,line=3,cex=.8)
+axis(1,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=.8)
+axis(2,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=.8)
+box( )
+
+points(C.B[,1],C.B[,2],pch=".")
+x<-abbreviate(colnames(y5))
+text(C.B[,1]-.05,C.B[,2]+.05,x,cex=0.5)
+for (i in seq(1,nrow(C.B),by=1)){
+  arrows(0,0,C.B[i,1],C.B[i,2])
+}
+#Draw circle unit
+library(plotrix)
+draw.circle(0,0,1,border='black')
+
 
 

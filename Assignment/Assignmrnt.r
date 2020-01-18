@@ -191,37 +191,43 @@ ss=t(xc)%*%xc
 d=diag(ss)^(-1/2)
 e=diag(d)
 xn=xc%*%e
-var(xn)*sqrt(nrow(xc)-1)
+var(xn*sqrt(nrow(xc)-1))#xn unit variance if multiplied by sqrt of n-1
+sqrt(diag(t(xn)%*%xn))#unit length
 R=t(xn)%*%xn
 
 #Factor analysis
-pca.corr=eigen(R)
-xch=xc
-cerB=diag((pca.corr$values)^(1/2))%*%t(pca.corr$vectors[c(1,2),])
-cerB
-cerB%*%t(cerB)
+pca.corr2=svd(R)
+cerB=pca.corr2$v%*%diag((sqrt(pca.corr2$d)))#Factor loadings
+cerB_red<-cerB[,c(1,2)]#Reduced factor loadings
+cer.psi=R-cerB_red%*%t(cerB_red)
+#RMS calculations
+cer.res <- (cer.psi - diag(cer.psi))^2 #making the diagonal 0 which are the specific variances
+cer.RMS.overall <- sqrt(sum(cer.res)/length(cer.res))
+cer.RMS.overall
 
-R.B<-pca.corr$u      #scores matrix #U is the  matrix of standardized PC scores!   
-C.B<-pca.corr$vectors%*%diag((pca.corr$values)^(1/2))%*%t(pca.corr$vectors[c(1,2),])  
+#BiPlot
+R.B<-as.matrix(xn)%*%pca.corr2$v%*%(diag((pca.corr2$d)^(-1/2))) #scores matrix #U is the  matrix of standardized PC scores! 
+C.B<-cerB
+#C.B<-cerB
 
-par(mar=c(4,4,4,4),pty='s',oma=c(5,0,0,0),font=2)
+#Create actual plot
+par(mar=c(2,2,2,2),pty='s',oma=c(5,0,0,0),font=2)
 par(mfrow=c(1,1))
-plot(R.B[ ,1],R.B[ ,2],axes=F,xlim=c(-1,1),ylim=c(-1,1),xlab=' ',ylab=' ',cex=.8)
-mtext('First component',side=1,line=3,cex=.8)
-mtext('Second component',side=2,line=3,cex=.8)
+plot(R.B[ ,1],R.B[ ,2],axes=F,xlim=c(-1,1),ylim=c(-1,1),xlab=' ',ylab=' ',cex=.8)#observations=factor scores scaled
+mtext('First component',side=1,line=3,cex=1)
+mtext('Second component',side=2,line=3,cex=1)
 axis(1,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=.8)
 axis(2,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=.8)
 box( )
 
-points(C.B[,1],C.B[,2],pch=".")
+points(C.B[,1],C.B[,2],pch=".")#plotting the variables = factor loadings
 x<-abbreviate(colnames(y5))
-text(C.B[,1]-.05,C.B[,2]+.05,x,cex=0.5)
+text(C.B[,1]-.05,C.B[,2]+.05,x,cex=1.0)
 for (i in seq(1,nrow(C.B),by=1)){
   arrows(0,0,C.B[i,1],C.B[i,2])
 }
 #Draw circle unit
 library(plotrix)
 draw.circle(0,0,1,border='black')
-
 
 

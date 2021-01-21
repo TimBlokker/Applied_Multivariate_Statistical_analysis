@@ -1,6 +1,5 @@
 #Load libraries
 library(readxl)
-library(dplyr)
 library(plyr)
 library(dplyr)
 library(magrittr)
@@ -86,26 +85,15 @@ obs_weights<-y2%>%
   group_by(FromTo)%>%
   count()%>%
   arrange(FromTo)
-obs_weights
-
+frequencies=obs_weights[,20]
 
 #change data type to numeric
 y4<-y3%<>% mutate_if(is.factor,as.numeric)
 xm<-apply(y4[,2:19],2,mean)
 y5<-sweep(y4[2:19],2,xm)#center the data, I do not normalize for var=1 because the values used are on the same scale 
 
-#Look at stars plot where exchanges which let the student experience the same type of cultural differences look similar
-stars(y5)
-par(mfrow=(c(1,1)))
-#All variables are on the same scale and so we know the ranges.
-#Set up the plot axes and lables.
-plot(c(.5,18),c(-2,2),type="n",xlab=var,ylab="Value",main="Profile Plot - Rock Data")
-#Use a loop to generate profiles for each FromTo value
-for (k in (1:270)){
-  points(1:18,y5[k,],type="l") #possibly observe 2 groups
-}
-
 # Generate Andrews plot for the cultural difference data
+par(mfrow=c(1,1))
 t <-seq(-pi,pi,length=500)
 plot(c(-pi,pi),c(-6,6),type="n",xlab=var,ylab="Value",main="Andrews Plot")
 for (k in (1:270)){
@@ -114,27 +102,21 @@ for (k in (1:270)){
 }
 title("Andrews Plot")
 
-  #start with a cluster analysis since we suspect two clusters, we include the frequencies of the FromTo values as weights
+#start with a cluster analysis since we suspect two clusters, we include the frequencies of the FromTo values as weights
 #this gives information on which cultural values are attractive for certain countries to go to on erasmus
 par(mfrow=c(1,1))
 d=dist(y5, method='euclidean')
-culDifclust <- hclust(d, method="average", members=obs_weights$freq)  #AVARAGE LINK and using the frequencies of the observations as weights
-plot(culDifclust,xlab="Cultural Differences",ylab="Average Link Distance", sub="")
-
+culDifclust <- hclust(d, method="average", members=frequencies)  #AVARAGE LINK and using the frequencies of the observations as weights
 
 # Rectangle dendrogram using ggplot2
 dend=as.dendrogram(culDifclust)
 dend %>% set("labels_col", value = c("green", "blue", "red"), k=3) %>% 
   plot(main = "Weighted Cluster Dendrogram", ylab="Average Link Distance", xlab="Cultural Differences", )
 abline(h = 3.2, lty = 2)
- 
 
 #we select 3 clusters and observe 2 outliers
 culDif.gp <- cutree(culDifclust,k=3)
-table(culDif.gp)#outliers in group 3
-
-clusplot(y5,culDif.gp,stand=TRUE,labels=3,main="Cultural Difference - Average link")
-
+table(culDif.gp)#outliers? in group 3
 
 #Assign cluster to FromTo cultural difference values
 clusterd<-(cbind(culDif.gp,y5))
@@ -147,8 +129,56 @@ par(mfrow=c(1,2))
 prp(rpart, type = 4, extra = 101, fallen.leaves = T,round = 2, space = -1, varlen = 5)
 plotcp(rpart)
 
+##Create correlation matrix from centered data matrix
+xc=as.matrix(y5)
+ss=t(xc)%*%xc
+d=diag(ss)^(-1/2)
+e=diag(d)
+xn=xc%*%e
+var(xn*sqrt(nrow(xc)-1))#xn unit variance if multiplied by sqrt of n-1
+sqrt(diag(t(xn)%*%xn))#unit length
+R=t(xn)%*%xn
+
+#Factor analysis
+pca.corr2=svd(R)
+cerB=pca.corr2$v%*%diag((sqrt(pca.corr2$d)))#Factor loadings
+cerB_red<-cerB#Reduced factor loadings
+cer.psi=R-cerB_red%*%t(cerB_red)
+
+#RMS calculations
+cer.res <- (cer.psi - diag(cer.psi))^2 #making the diagonal 0 which are the specific variances
+cer.RMS.overall <- sqrt(sum(cer.res)/length(cer.res))
+cer.RMS.overall
+
+#BiPlot
+svd.xn<-svd(xn)
+R.B<-as.matrix(xn)%*%svd.xn$v%*%(diag((svd.xn$d)^(-1))) #scores matrix #U is the  matrix of standardized PC scores! 
+C.B<-svd.xn$v%*%diag(svd.xn$d)
+
+#Create actual plot
+par(mar=c(0.5,0.5,0.5,0.5),pty='s',oma=c(3.5,0,0,0),font=2)
+par(mfrow=c(1,1))
+plot(R.B[ ,1],R.B[ ,2], col=clusterd$culDif.gp ,axes=F,xlim=c(-1,1),ylim=c(-1,1),xlab=' ',ylab=' ',cex=1.2)#observations=factor scores=scaled principal component scores
+legend("bottomright",bty='n',legend=levels(as.factor(clusterd$culDif.gp)), pch=1,horiz=T, xpd=T,cex=1.2,col=unique(clusterd$culDif.gp))
+
+mtext('First component',side=1,line=3,cex=1)
+mtext('Second component',side=2,line=3,cex=1)
+axis(1,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=1.2)
+axis(2,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=1.2)
+box( )
+
+points(C.B[,1],C.B[,2],pch=".")#plotting the variables = factor loadings
+x<-abbreviate(colnames(y5))
+text(C.B[,1]-.05,C.B[,2]+.05,x,cex=1.0)
+for (i in seq(1,nrow(C.B),by=1)){
+  arrows(0,0,C.B[i,1],C.B[i,2])
+}
+#Draw circle unit
+library(plotrix)
+draw.circle(0,0,1,border='black')
+
 #Split the FromTO values again into Host and Home
-clusterd2<-(cbind(culDif.gp,y4[,1],y5, obs_weights$freq))
+clusterd2<-cbind(culDif.gp,y4[,1],y5, frequencies)
 xxxx=strsplit(as.character(clusterd2[,2]),'_')
 x=seq(1,540,2)
 clusterd2$Home=unlist(xxxx)[x]
@@ -185,49 +215,6 @@ b=a+theme_classic()+   scale_fill_hue(l=20)
 b+geom_col()+ geom_hline(yintercept=clusterd6$percentage[2], linetype="dashed", 
                          color = "steelblue", size=1)
 
-##Create correlation matrix from centered data matrix
-xc=as.matrix(y5)
-ss=t(xc)%*%xc
-d=diag(ss)^(-1/2)
-e=diag(d)
-xn=xc%*%e
-var(xn*sqrt(nrow(xc)-1))#xn unit variance if multiplied by sqrt of n-1
-sqrt(diag(t(xn)%*%xn))#unit length
-R=t(xn)%*%xn
-
-#Factor analysis
-pca.corr2=svd(R)
-cerB=pca.corr2$v%*%diag((sqrt(pca.corr2$d)))#Factor loadings
-cerB_red<-cerB[,c(1,2)]#Reduced factor loadings
-cer.psi=R-cerB_red%*%t(cerB_red)
-#RMS calculations
-cer.res <- (cer.psi - diag(cer.psi))^2 #making the diagonal 0 which are the specific variances
-cer.RMS.overall <- sqrt(sum(cer.res)/length(cer.res))
-cer.RMS.overall
-
-#BiPlot
-R.B<-as.matrix(xn)%*%pca.corr2$v%*%(diag((pca.corr2$d)^(-1/2))) #scores matrix #U is the  matrix of standardized PC scores! 
-C.B<-cerB
-#C.B<-cerB
-
-#Create actual plot
-par(mar=c(2,2,2,2),pty='s',oma=c(5,0,0,0),font=2)
-par(mfrow=c(1,1))
-plot(R.B[ ,1],R.B[ ,2],axes=F,xlim=c(-1,1),ylim=c(-1,1),xlab=' ',ylab=' ',cex=.8)#observations=factor scores scaled
-mtext('First component',side=1,line=3,cex=1)
-mtext('Second component',side=2,line=3,cex=1)
-axis(1,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=.8)
-axis(2,at=c(-1,-.8,-.6,-.4,-.2,0,.2,.4,.6,.8,1),cex=.8)
-box( )
-
-points(C.B[,1],C.B[,2],pch=".")#plotting the variables = factor loadings
-x<-abbreviate(colnames(y5))
-text(C.B[,1]-.05,C.B[,2]+.05,x,cex=1.0)
-for (i in seq(1,nrow(C.B),by=1)){
-  arrows(0,0,C.B[i,1],C.B[i,2])
-}
-#Draw circle unit
-library(plotrix)
-draw.circle(0,0,1,border='black')
-
-
+library(MASS)
+x=lda(clusterd$culDif.gp~., data =clusterd)
+plot(x)
